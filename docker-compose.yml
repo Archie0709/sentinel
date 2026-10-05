@@ -1,0 +1,14 @@
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_DATABASE: sentinel
+      MARIADB_USER: sentinel
+      MARIADB_PASSWORD: devpassword
+      MARIADB_ROOT_PASSWORD: rootpassword
+    ports:
+      - "3307:3306"
+    volumes:
+      - dbdata:/var/lib/mysql
+volumes:
+  dbdata:
