@@ -7,7 +7,7 @@ import org.hibernate.annotations.Immutable;
 
 @Entity
 @Immutable
-@Table(name = "status_transition")
+@Table(name = "status_transitions")
 public class StatusTransition {
 
     @EmbeddedId
