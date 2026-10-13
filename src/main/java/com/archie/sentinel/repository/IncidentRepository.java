@@ -15,6 +15,7 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
     // Dashboard counters
     long countByStatusNameNot(String statusName);
     long countBySeverityRankOrderGreaterThanEqual(Short rankOrder);
+    long countBySeverityRankOrderGreaterThanEqualAndStatusNameNot(Short rankOrder, String statusName);
 
     // Recently updated
     @EntityGraph(attributePaths = {"severity", "status", "assignedTo", "createdBy"})
@@ -28,6 +29,7 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
             WHERE (:status IS NULL OR i.status.name = :status)
               AND (:severity IS NULL OR i.severity.name = :severity)
               AND (:assignee IS NULL OR a.username = :assignee)
+              AND (:includeResolved = TRUE OR i.status.name <> 'RESOLVED')
             """,
             countQuery = """
             SELECT COUNT(i) FROM Incident i
@@ -35,9 +37,11 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
             WHERE (:status IS NULL OR i.status.name = :status)
               AND (:severity IS NULL OR i.severity.name = :severity)
               AND (:assignee IS NULL OR a.username = :assignee)
+              AND (:includeResolved = TRUE OR i.status.name <> 'RESOLVED')
             """)
     Page<Incident> search(@Param("status") String status,
                           @Param("severity") String severity,
                           @Param("assignee") String assignee,
+                          @Param("includeResolved") boolean includeResolved,
                           Pageable pageable);
 }

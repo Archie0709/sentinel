@@ -122,13 +122,15 @@ public class IncidentService {
     }
 
     @Transactional(readOnly = true)
-    public DashboardResponse getDashboard() {
+    public DashboardResponse getDashboard(boolean includeResolved) {
         Severity high = loadSeverity(HIGH_SEVERITY);
 
         long total = incidentRepository.count();
         long open = incidentRepository.countByStatusNameNot(RESOLVED_STATUS);
-        long highAndAbove = incidentRepository
-                .countBySeverityRankOrderGreaterThanEqual(high.getRankOrder());
+        long highAndAbove = includeResolved
+                ? incidentRepository.countBySeverityRankOrderGreaterThanEqual(high.getRankOrder())
+                : incidentRepository.countBySeverityRankOrderGreaterThanEqualAndStatusNameNot(
+                        high.getRankOrder(), RESOLVED_STATUS);
 
         List<IncidentResponse> recent = incidentRepository.findTop5ByOrderByUpdatedAtDesc()
                 .stream()
@@ -140,17 +142,21 @@ public class IncidentService {
 
     @Transactional(readOnly = true)
     public Page<IncidentResponse> searchIncidents(String status, String severity,
-                                                  String assignee, int page, int size) {
+                                                  String assignee, boolean includeResolved,
+                                                  int page, int size) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
-        // Fixed sort, never taken from the request. The id tiebreaker keeps paging
-        // stable because TIMESTAMP only has one-second precision.
+        String statusFilter = blankToNull(status);
+        // Explicitly asking for RESOLVED incidents implies showing them
+        boolean showResolved = includeResolved || RESOLVED_STATUS.equals(statusFilter);
+
         Pageable pageable = PageRequest.of(safePage, safeSize,
                 Sort.by(Sort.Direction.DESC, "updatedAt").and(Sort.by(Sort.Direction.DESC, "id")));
 
         return incidentRepository
-                .search(blankToNull(status), blankToNull(severity), blankToNull(assignee), pageable)
+                .search(statusFilter, blankToNull(severity), blankToNull(assignee),
+                        showResolved, pageable)
                 .map(IncidentResponse::from);
     }
 

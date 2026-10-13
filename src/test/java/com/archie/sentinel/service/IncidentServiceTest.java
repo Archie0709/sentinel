@@ -126,7 +126,7 @@ class IncidentServiceTest {
         when(incidentRepository.countBySeverityRankOrderGreaterThanEqual((short) 3)).thenReturn(4L);
         when(incidentRepository.findTop5ByOrderByUpdatedAtDesc()).thenReturn(List.of(incident));
 
-        DashboardResponse result = service.getDashboard();
+        DashboardResponse result = service.getDashboard(true);
 
         assertThat(result.totalIncidents()).isEqualTo(10);
         assertThat(result.openIncidents()).isEqualTo(7);
@@ -136,13 +136,13 @@ class IncidentServiceTest {
 
     @Test
     void searchIncidents_blankFiltersBecomeNull_andPageSizeIsCapped() {
-        when(incidentRepository.search(any(), any(), any(), any(Pageable.class)))
+        when(incidentRepository.search(any(), any(), any(), anyBoolean(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(incident)));
 
-        service.searchIncidents("  ", "", "alice", -5, 100_000);
+        service.searchIncidents("  ", "", "alice", false, -5, 100_000);
 
         var captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(incidentRepository).search(isNull(), isNull(), eq("alice"), captor.capture());
+        verify(incidentRepository).search(isNull(), isNull(), eq("alice"), eq(false), captor.capture());
         assertThat(captor.getValue().getPageNumber()).isZero();
         assertThat(captor.getValue().getPageSize()).isEqualTo(100);
     }
@@ -165,6 +165,28 @@ class IncidentServiceTest {
 
         assertThat(result.assignedTo()).isEqualTo("bob");
         verify(auditLogRepository).save(any(AuditLog.class));
+    }
+
+    @Test
+    void searchIncidents_explicitResolvedStatusImpliesShowingResolved() {
+        when(incidentRepository.search(any(), any(), any(), anyBoolean(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(incident)));
+
+        service.searchIncidents("RESOLVED", null, null, false, 0, 10);
+
+        verify(incidentRepository).search(eq("RESOLVED"), isNull(), isNull(), eq(true), any(Pageable.class));
+    }
+
+    @Test
+    void getDashboard_excludingResolved_usesFilteredHighSeverityCount() {
+        when(severityRepository.findByName("HIGH")).thenReturn(Optional.of(severityWithRank("HIGH", 3)));
+        when(incidentRepository.findTop5ByOrderByUpdatedAtDesc()).thenReturn(List.of());
+        when(incidentRepository.countBySeverityRankOrderGreaterThanEqualAndStatusNameNot((short) 3, "RESOLVED"))
+                .thenReturn(2L);
+
+        var result = service.getDashboard(false);
+
+        assertThat(result.highSeverityIncidents()).isEqualTo(2);
     }
 
 }

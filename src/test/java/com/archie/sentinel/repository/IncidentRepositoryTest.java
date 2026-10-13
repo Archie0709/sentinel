@@ -82,7 +82,7 @@ public class IncidentRepositoryTest {
         var assigned = saveIncident("assigned", "HIGH", "INVESTIGATING");
         assigned.setAssignedTo(analyst);
 
-        var result = incidentRepository.search(null, null, null, PageRequest.of(0, 10));
+        var result = incidentRepository.search(null, null, null, false, PageRequest.of(0, 10));
 
         assertThat(result.getTotalElements()).isEqualTo(2);
     }
@@ -93,7 +93,7 @@ public class IncidentRepositoryTest {
         saveIncident("b", "HIGH", "PENDING");
         saveIncident("c", "HIGH", "RESOLVED");
 
-        var result = incidentRepository.search("PENDING", "HIGH", null, PageRequest.of(0, 10));
+        var result = incidentRepository.search("PENDING", "HIGH", null, false, PageRequest.of(0, 10));
 
         assertThat(result.getContent())
                 .extracting(i -> i.getTitle())
@@ -106,11 +106,34 @@ public class IncidentRepositoryTest {
         var mine = saveIncident("mine", "LOW", "PENDING");
         mine.setAssignedTo(analyst);
 
-        var result = incidentRepository.search(null, null, "analyst1", PageRequest.of(0, 10));
+        var result = incidentRepository.search(null, null, "analyst1", false, PageRequest.of(0, 10));
 
         assertThat(result.getContent())
                 .extracting(i -> i.getTitle())
                 .containsExactly("mine");
+    }
+
+    @Test
+    void search_hidesResolvedUnlessRequested() {
+        saveIncident("active", "HIGH", "INVESTIGATING");
+        saveIncident("done", "HIGH", "RESOLVED");
+
+        var hidden = incidentRepository.search(null, null, null, false, PageRequest.of(0, 10));
+        var shown = incidentRepository.search(null, null, null, true, PageRequest.of(0, 10));
+
+        assertThat(hidden.getContent()).extracting(i -> i.getTitle()).containsExactly("active");
+        assertThat(shown.getTotalElements()).isEqualTo(2);
+    }
+
+    @Test
+    void countHighAndAboveExcludingResolved_ignoresResolved() {
+        saveIncident("a", "HIGH", "INVESTIGATING");
+        saveIncident("b", "CRITICAL", "RESOLVED");
+        saveIncident("c", "LOW", "PENDING");
+
+        assertThat(incidentRepository
+                .countBySeverityRankOrderGreaterThanEqualAndStatusNameNot((short) 3, "RESOLVED"))
+                .isEqualTo(1);
     }
 
 }
