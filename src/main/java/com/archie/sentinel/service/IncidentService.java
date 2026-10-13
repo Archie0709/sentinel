@@ -8,6 +8,12 @@ import com.archie.sentinel.repository.*;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.archie.sentinel.dto.DashboardResponse;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import java.util.List;
 
 import java.util.Objects;
 
@@ -16,6 +22,9 @@ public class IncidentService {
 
     private static final String ADMIN = "ADMIN";
     private static final String INITIAL_STATUS = "PENDING";
+    private static final String RESOLVED_STATUS = "RESOLVED";
+    private static final String HIGH_SEVERITY = "HIGH";
+    private static final int MAX_PAGE_SIZE = 100;
 
     private final IncidentRepository incidentRepository;
     private final UserRepository userRepository;
@@ -110,6 +119,43 @@ public class IncidentService {
         incident.setAssignedTo(assignee);
         audit(incident, actor, "assigned_to", oldName, assignee.getUsername());
         return IncidentResponse.from(incidentRepository.saveAndFlush(incident));
+    }
+
+    @Transactional(readOnly = true)
+    public DashboardResponse getDashboard() {
+        Severity high = loadSeverity(HIGH_SEVERITY);
+
+        long total = incidentRepository.count();
+        long open = incidentRepository.countByStatusNameNot(RESOLVED_STATUS);
+        long highAndAbove = incidentRepository
+                .countBySeverityRankOrderGreaterThanEqual(high.getRankOrder());
+
+        List<IncidentResponse> recent = incidentRepository.findTop5ByOrderByUpdatedAtDesc()
+                .stream()
+                .map(IncidentResponse::from)
+                .toList();
+
+        return new DashboardResponse(total, open, highAndAbove, recent);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<IncidentResponse> searchIncidents(String status, String severity,
+                                                  String assignee, int page, int size) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+
+        // Fixed sort, never taken from the request. The id tiebreaker keeps paging
+        // stable because TIMESTAMP only has one-second precision.
+        Pageable pageable = PageRequest.of(safePage, safeSize,
+                Sort.by(Sort.Direction.DESC, "updatedAt").and(Sort.by(Sort.Direction.DESC, "id")));
+
+        return incidentRepository
+                .search(blankToNull(status), blankToNull(severity), blankToNull(assignee), pageable)
+                .map(IncidentResponse::from);
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     // Helper methods
