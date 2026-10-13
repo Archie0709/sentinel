@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -73,6 +74,43 @@ public class IncidentRepositoryTest {
         saveIncident("incident2", "LOW", "PENDING");
 
         assertThat(incidentRepository.findTop5ByOrderByUpdatedAtDesc()).hasSize(2);
+    }
+
+    @Test
+    void search_withNoFilters_returnsAllIncludingUnassigned() {
+        saveIncident("unassigned", "LOW", "PENDING");
+        var assigned = saveIncident("assigned", "HIGH", "INVESTIGATING");
+        assigned.setAssignedTo(analyst);
+
+        var result = incidentRepository.search(null, null, null, PageRequest.of(0, 10));
+
+        assertThat(result.getTotalElements()).isEqualTo(2);
+    }
+
+    @Test
+    void search_filtersByStatusAndSeverity() {
+        saveIncident("a", "LOW", "PENDING");
+        saveIncident("b", "HIGH", "PENDING");
+        saveIncident("c", "HIGH", "RESOLVED");
+
+        var result = incidentRepository.search("PENDING", "HIGH", null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent())
+                .extracting(i -> i.getTitle())
+                .containsExactly("b");
+    }
+
+    @Test
+    void search_filtersByAssignee() {
+        saveIncident("unassigned", "LOW", "PENDING");
+        var mine = saveIncident("mine", "LOW", "PENDING");
+        mine.setAssignedTo(analyst);
+
+        var result = incidentRepository.search(null, null, "analyst1", PageRequest.of(0, 10));
+
+        assertThat(result.getContent())
+                .extracting(i -> i.getTitle())
+                .containsExactly("mine");
     }
 
 }

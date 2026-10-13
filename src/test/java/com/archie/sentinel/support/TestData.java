@@ -37,4 +37,12 @@ public final class TestData {
         ReflectionTestUtils.setField(i, "id", id);
         return i;
     }
+
+    public static Severity severityWithRank(String name, int rank) {
+        Severity s = BeanUtils.instantiateClass(Severity.class);
+        ReflectionTestUtils.setField(s, "name", name);
+        ReflectionTestUtils.setField(s, "rankOrder", (short) rank);
+        return s;
+    }
+
 }

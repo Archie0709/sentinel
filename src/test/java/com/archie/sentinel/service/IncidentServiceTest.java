@@ -1,5 +1,6 @@
 package com.archie.sentinel.service;
 
+import com.archie.sentinel.dto.DashboardResponse;
 import com.archie.sentinel.exception.InvalidStatusTransitionException;
 import com.archie.sentinel.model.*;
 import com.archie.sentinel.repository.*;
@@ -10,8 +11,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 
+import java.util.List;
 import java.util.Optional;
 
 import static com.archie.sentinel.support.TestData.*;
@@ -113,4 +117,54 @@ class IncidentServiceTest {
         assertThatThrownBy(() -> service.assign(10L, "bob", "alice"))
                 .isInstanceOf(AccessDeniedException.class);
     }
+
+    @Test
+    void getDashboard_assemblesCountsAndRecentIncidents() {
+        when(severityRepository.findByName("HIGH")).thenReturn(Optional.of(severityWithRank("HIGH", 3)));
+        when(incidentRepository.count()).thenReturn(10L);
+        when(incidentRepository.countByStatusNameNot("RESOLVED")).thenReturn(7L);
+        when(incidentRepository.countBySeverityRankOrderGreaterThanEqual((short) 3)).thenReturn(4L);
+        when(incidentRepository.findTop5ByOrderByUpdatedAtDesc()).thenReturn(List.of(incident));
+
+        DashboardResponse result = service.getDashboard();
+
+        assertThat(result.totalIncidents()).isEqualTo(10);
+        assertThat(result.openIncidents()).isEqualTo(7);
+        assertThat(result.highSeverityIncidents()).isEqualTo(4);
+        assertThat(result.recentlyUpdated()).hasSize(1);
+    }
+
+    @Test
+    void searchIncidents_blankFiltersBecomeNull_andPageSizeIsCapped() {
+        when(incidentRepository.search(any(), any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(incident)));
+
+        service.searchIncidents("  ", "", "alice", -5, 100_000);
+
+        var captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(incidentRepository).search(isNull(), isNull(), eq("alice"), captor.capture());
+        assertThat(captor.getValue().getPageNumber()).isZero();
+        assertThat(captor.getValue().getPageSize()).isEqualTo(100);
+    }
+
+    @Test
+    void analyst_canModifyUnassignedIncident() {
+        incident.setAssignedTo(null);
+        when(severityRepository.findByName("HIGH")).thenReturn(Optional.of(severity("HIGH")));
+
+        var result = service.changeSeverity(10L, "HIGH", "bob");
+
+        assertThat(result.severity()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void analyst_canClaimUnassignedIncidentForThemselves() {
+        incident.setAssignedTo(null);
+
+        var result = service.assign(10L, "bob", "bob");
+
+        assertThat(result.assignedTo()).isEqualTo("bob");
+        verify(auditLogRepository).save(any(AuditLog.class));
+    }
+
 }
