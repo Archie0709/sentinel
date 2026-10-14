@@ -9,3 +9,11 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+
+server:
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: lax
+        # secure: true   # enable if I host this

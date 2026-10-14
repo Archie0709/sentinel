@@ -20,6 +20,7 @@ $env:SENTINEL_BOOTSTRAP_ADMIN_PASSWORD = "pick-a-password"
 ## Known Limitations
 
  1. audit_log cannot record events not tied to an incident, meaning role changes or user creation isn't currently logged. Will address once product is functional
- 2. 
- 3. 
+ 2. Logins and failed logins cannot be audited
+ 3. Login attempts are unlimited, no brute force protection
+ 4. Session cookie isnt secure
 
