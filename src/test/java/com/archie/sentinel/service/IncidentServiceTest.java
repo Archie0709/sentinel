@@ -4,11 +4,11 @@ import com.archie.sentinel.dto.DashboardResponse;
 import com.archie.sentinel.exception.InvalidStatusTransitionException;
 import com.archie.sentinel.model.*;
 import com.archie.sentinel.repository.*;
+import com.archie.sentinel.security.CurrentUserAccess;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
@@ -34,7 +34,7 @@ class IncidentServiceTest {
     @Mock StatusTransitionRepository transitionRepository;
     @Mock AuditLogRepository auditLogRepository;
 
-    @InjectMocks IncidentService service;
+    private IncidentService service;
 
     private User admin;
     private User alice;   // analyst
@@ -43,6 +43,10 @@ class IncidentServiceTest {
 
     @BeforeEach
     void setUp() {
+        service = new IncidentService(incidentRepository, userRepository, severityRepository,
+            statusRepository, transitionRepository, auditLogRepository,
+            new CurrentUserAccess(userRepository));
+
         admin = user(1, "admin", "ADMIN");
         alice = user(2, "alice", "ANALYST");
         bob = user(3, "bob", "ANALYST");
@@ -187,6 +191,27 @@ class IncidentServiceTest {
         var result = service.getDashboard(false);
 
         assertThat(result.highSeverityIncidents()).isEqualTo(2);
+    }
+
+    @Test
+    void createIncident_writesCreatedAuditEntry() {
+        when(severityRepository.findByName("HIGH")).thenReturn(Optional.of(severity("HIGH")));
+        when(statusRepository.findByName("PENDING")).thenReturn(Optional.of(status(1, "PENDING")));
+
+        service.createIncident("Phishing email", "desc", "HIGH", "alice");
+
+        var captor = ArgumentCaptor.forClass(AuditLog.class);
+        verify(auditLogRepository).save(captor.capture());
+        assertThat(captor.getValue().getFieldName()).isEqualTo("created");
+        assertThat(captor.getValue().getOldValue()).isNull();
+        assertThat(captor.getValue().getNewValue()).isEqualTo("Phishing email");
+        assertThat(captor.getValue().getChangedBy()).isSameAs(alice);
+    }
+
+    @Test
+    void unknownActor_isDenied() {
+        assertThatThrownBy(() -> service.changeSeverity(10L, "HIGH", "ghost"))
+                .isInstanceOf(AccessDeniedException.class);
     }
 
 }

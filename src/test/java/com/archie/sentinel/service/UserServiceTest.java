@@ -5,11 +5,11 @@ import com.archie.sentinel.exception.InvalidInputException;
 import com.archie.sentinel.model.User;
 import com.archie.sentinel.repository.RoleRepository;
 import com.archie.sentinel.repository.UserRepository;
+import com.archie.sentinel.security.CurrentUserAccess;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
@@ -32,13 +32,16 @@ class UserServiceTest {
     @Mock RoleRepository roleRepository;
     @Mock PasswordEncoder passwordEncoder;
 
-    @InjectMocks UserService service;
+    private UserService service;
 
     private User admin;
     private User alice;   // (analyst)
 
     @BeforeEach
     void setUp() {
+        service = new UserService(userRepository, roleRepository, passwordEncoder,
+                new CurrentUserAccess(userRepository));
+
         admin = user(1, "admin", "ADMIN");
         alice = user(2, "alice", "ANALYST");
         lenient().when(userRepository.findByUsername("admin")).thenReturn(Optional.of(admin));

@@ -8,6 +8,7 @@ import com.archie.sentinel.model.Role;
 import com.archie.sentinel.model.User;
 import com.archie.sentinel.repository.RoleRepository;
 import com.archie.sentinel.repository.UserRepository;
+import com.archie.sentinel.security.CurrentUserAccess;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -21,7 +22,6 @@ import java.util.regex.Pattern;
 @Service
 public class UserService {
 
-    private static final String ADMIN = "ADMIN";
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^[A-Za-z0-9._-]{3,50}$");
     private static final int MIN_PASSWORD_LENGTH = 12;
     private static final int MAX_PASSWORD_BYTES = 72;   // BCrypt ignores anything beyond this
@@ -29,19 +29,22 @@ public class UserService {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
+    private final CurrentUserAccess access;
 
     public UserService(UserRepository userRepository,
                        RoleRepository roleRepository,
-                       PasswordEncoder passwordEncoder) {
+                       PasswordEncoder passwordEncoder,
+                       CurrentUserAccess access) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
+        this.access = access;
     }
 
     @Transactional
     public UserResponse createUser(String username, String rawPassword,
                                    String roleName, String actorUsername) {
-        requireAdmin(actorUsername);
+        access.requireAdmin(actorUsername);
 
         String cleanUsername = validateUsername(username);
         validatePassword(rawPassword);
@@ -58,7 +61,7 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public List<UserResponse> listUsers(String actorUsername) {
-        requireAdmin(actorUsername);
+        access.requireAdmin(actorUsername);
         return userRepository.findAllByOrderByUsernameAsc().stream()
                 .map(UserResponse::from)
                 .toList();
@@ -66,7 +69,7 @@ public class UserService {
 
     @Transactional
     public UserResponse changeRole(Long userId, String roleName, String actorUsername) {
-        User actor = requireAdmin(actorUsername);
+        User actor = access.requireAdmin(actorUsername);
 
         if (Objects.equals(actor.getId(), userId)) {
             throw new AccessDeniedException("Administrators cannot change their own role");
@@ -79,15 +82,6 @@ public class UserService {
     }
 
     // Helpers
-
-    private User requireAdmin(String username) {
-        User actor = userRepository.findByUsername(username)
-                .orElseThrow(() -> new AccessDeniedException("Access denied"));
-        if (!ADMIN.equals(actor.getRole().getName())) {
-            throw new AccessDeniedException("Administrator access required");
-        }
-        return actor;
-    }
 
     private Role loadRole(String name) {
         return roleRepository.findByName(name)

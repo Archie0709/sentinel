@@ -3,6 +3,7 @@ package com.archie.sentinel.config;
 import com.archie.sentinel.model.User;
 import com.archie.sentinel.repository.RoleRepository;
 import com.archie.sentinel.repository.UserRepository;
+import com.archie.sentinel.security.Roles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,7 +40,7 @@ public class AdminBootstrap implements ApplicationRunner {
         if (password.isBlank() || userRepository.count() > 0) {
             return;
         }
-        var adminRole = roleRepository.findByName("ADMIN").orElseThrow();
+        var adminRole = roleRepository.findByName(Roles.ADMIN).orElseThrow();
         userRepository.save(new User(username, passwordEncoder.encode(password), adminRole));
         log.info("Created initial administrator '{}'", username);
     }

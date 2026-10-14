@@ -5,6 +5,7 @@ import com.archie.sentinel.exception.InvalidStatusTransitionException;
 import com.archie.sentinel.exception.ResourceNotFoundException;
 import com.archie.sentinel.model.*;
 import com.archie.sentinel.repository.*;
+import com.archie.sentinel.security.CurrentUserAccess;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,7 +21,6 @@ import java.util.Objects;
 @Service
 public class IncidentService {
 
-    private static final String ADMIN = "ADMIN";
     private static final String INITIAL_STATUS = "PENDING";
     private static final String RESOLVED_STATUS = "RESOLVED";
     private static final String HIGH_SEVERITY = "HIGH";
@@ -32,31 +32,34 @@ public class IncidentService {
     private final IncidentStatusRepository statusRepository;
     private final StatusTransitionRepository transitionRepository;
     private final AuditLogRepository auditLogRepository;
+    private final CurrentUserAccess access;
 
     public IncidentService(IncidentRepository incidentRepository,
                            UserRepository userRepository,
                            SeverityRepository severityRepository,
                            IncidentStatusRepository statusRepository,
                            StatusTransitionRepository transitionRepository,
-                           AuditLogRepository auditLogRepository) {
+                           AuditLogRepository auditLogRepository,
+                           CurrentUserAccess access) {
         this.incidentRepository = incidentRepository;
         this.userRepository = userRepository;
         this.severityRepository = severityRepository;
         this.statusRepository = statusRepository;
         this.transitionRepository = transitionRepository;
         this.auditLogRepository = auditLogRepository;
+        this.access = access;
     }
 
     @Transactional
-    public IncidentResponse createIncident(String title, String description,
-                                           String severityName, String actorUsername) {
-        User actor = loadUser(actorUsername);
+    public IncidentResponse createIncident(String title, String description, String severityName, String actorUsername) {
+        User actor = access.requireUser(actorUsername);
         Severity severity = loadSeverity(severityName);
         IncidentStatus status = statusRepository.findByName(INITIAL_STATUS)
                 .orElseThrow(() -> new ResourceNotFoundException("Missing status " + INITIAL_STATUS));
 
         Incident saved = incidentRepository.saveAndFlush(
                 new Incident(title, description, severity, status, actor));
+        audit(saved, actor, "created", null, saved.getTitle());
         return IncidentResponse.from(saved);
     }
 
@@ -66,9 +69,8 @@ public class IncidentService {
     }
 
     @Transactional
-    public IncidentResponse changeSeverity(Long incidentId, String severityName,
-                                           String actorUsername) {
-        User actor = loadUser(actorUsername);
+    public IncidentResponse changeSeverity(Long incidentId, String severityName, String actorUsername) {
+        User actor = access.requireUser(actorUsername);
         Incident incident = loadIncident(incidentId);
         assertCanModify(incident, actor);
 
@@ -82,9 +84,8 @@ public class IncidentService {
     }
 
     @Transactional
-    public IncidentResponse changeStatus(Long incidentId, String statusName,
-                                         String actorUsername) {
-        User actor = loadUser(actorUsername);
+    public IncidentResponse changeStatus(Long incidentId, String statusName, String actorUsername) {
+        User actor = access.requireUser(actorUsername);
         Incident incident = loadIncident(incidentId);
         assertCanModify(incident, actor);
 
@@ -103,14 +104,13 @@ public class IncidentService {
     }
 
     @Transactional
-    public IncidentResponse assign(Long incidentId, String assigneeUsername,
-                                   String actorUsername) {
-        User actor = loadUser(actorUsername);
+    public IncidentResponse assign(Long incidentId, String assigneeUsername, String actorUsername) {
+        User actor = access.requireUser(actorUsername);
         Incident incident = loadIncident(incidentId);
         assertCanModify(incident, actor);
 
-        User assignee = loadUser(assigneeUsername);
-        if (!isAdmin(actor) && !Objects.equals(assignee.getId(), actor.getId())) {
+        User assignee = loadAssignee(assigneeUsername);
+        if (!access.isAdmin(actor) && !Objects.equals(assignee.getId(), actor.getId())) {
             throw new AccessDeniedException("Analysts can only assign incidents to themselves");
         }
 
@@ -141,9 +141,7 @@ public class IncidentService {
     }
 
     @Transactional(readOnly = true)
-    public Page<IncidentResponse> searchIncidents(String status, String severity,
-                                                  String assignee, boolean includeResolved,
-                                                  int page, int size) {
+    public Page<IncidentResponse> searchIncidents(String status, String severity, String assignee, boolean includeResolved, int page, int size) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
@@ -167,7 +165,7 @@ public class IncidentService {
     // Helper methods
 
     private void assertCanModify(Incident incident, User actor) {
-        if (isAdmin(actor)) return;
+        if (access.isAdmin(actor)) return;
         User assignee = incident.getAssignedTo();
         boolean unassigned = assignee == null;
         boolean assignedToActor = assignee != null && Objects.equals(assignee.getId(), actor.getId());
@@ -176,17 +174,13 @@ public class IncidentService {
         }
     }
 
-    private boolean isAdmin(User user) {
-        return ADMIN.equals(user.getRole().getName());
+    private User loadAssignee(String username) {
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
     }
 
     private void audit(Incident incident, User actor, String field, String oldValue, String newValue) {
         auditLogRepository.save(new AuditLog(incident, actor, field, oldValue, newValue));
-    }
-
-    private User loadUser(String username) {
-        return userRepository.findByUsername(username)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
     }
 
     private Incident loadIncident(Long id) {
